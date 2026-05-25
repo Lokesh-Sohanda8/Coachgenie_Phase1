@@ -1,9 +1,24 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends,Query
 from app.dependencies import get_tenant, require_roles, DB
 from app.schemas.attendance import TakeAttendanceRequest
 from app.services import attendance as att_service
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
+
+
+@router.get("/")
+async def get_attendance_by_batch(
+    batch_id: str = Query(...),
+    from_date: str = Query(..., alias="from"),
+    to_date: str   = Query(..., alias="to"),
+    db: DB = None,
+    tenant=Depends(get_tenant),
+    current_user=Depends(require_roles("owner", "tutor", "counselor")),
+):
+    records = await att_service.get_attendance_by_batch(
+        db, str(tenant.id), batch_id, from_date, to_date
+    )
+    return {"success": True, "data": records}
 
 @router.post("/", status_code=201)
 async def take_attendance(

@@ -115,12 +115,13 @@
 # }
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, case
+from sqlalchemy import select, and_, func, case,update
 from app.models.fee import FeeStructure, FeeInvoice, FeePayment
 from app.utils.exceptions import NotFoundError, ConflictError, BadRequestError
 from app.utils.pagination import paginate
 from sqlalchemy.orm import selectinload
 from datetime import date
+
 
 
 async def get_fee_structures(db: AsyncSession, tenant_id: str) -> list:
@@ -132,7 +133,30 @@ async def get_fee_structures(db: AsyncSession, tenant_id: str) -> list:
     return result.scalars().all()
 
 
+# async def get_all_invoices(db: AsyncSession, tenant_id: str) -> list:
+#     result = await db.execute(
+#         select(FeeInvoice)
+#         .options(selectinload(FeeInvoice.student))
+#         .where(FeeInvoice.tenant_id == tenant_id)
+#         .order_by(FeeInvoice.created_at.desc())
+#     )
+#     return result.scalars().all()
 async def get_all_invoices(db: AsyncSession, tenant_id: str) -> list:
+    from datetime import date
+
+    # Auto-mark overdue
+    await db.execute(
+        update(FeeInvoice)
+        .where(
+            and_(
+                FeeInvoice.tenant_id == tenant_id,
+                FeeInvoice.status.in_(["pending", "partial"]),
+                FeeInvoice.due_date < date.today(),
+            )
+        )
+        .values(status="overdue")
+    )
+
     result = await db.execute(
         select(FeeInvoice)
         .options(selectinload(FeeInvoice.student))

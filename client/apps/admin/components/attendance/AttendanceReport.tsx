@@ -19,9 +19,9 @@ export function AttendanceReport({ students, records, startDate, endDate }: Atte
       const d = new Date(r.date);
       return r.studentId === student.id && d >= startDate && d <= endDate;
     });
-    const present = studentRecords.filter(r => r.status === "PRESENT").length;
-    const absent  = studentRecords.filter(r => r.status === "ABSENT").length;
-    const late    = studentRecords.filter(r => r.status === "LATE").length;
+   const present = studentRecords.filter(r => r.status.toLowerCase() === "present").length;
+const absent  = studentRecords.filter(r => r.status.toLowerCase() === "absent").length;
+const late    = studentRecords.filter(r => r.status.toLowerCase() === "late").length;
     const total   = present + absent + late;
     const pct     = total > 0 ? Math.round((present/total)*100) : 0;
     return { student, present, absent, late, total, pct };

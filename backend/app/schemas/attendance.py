@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import date
 import uuid
 
 
@@ -11,7 +12,8 @@ class AttendanceRecordIn(BaseModel):
 
 class TakeAttendanceRequest(BaseModel):
     class_id: uuid.UUID
-    session_date: str
+    session_date: date
+    # session_date: str
     records: List[AttendanceRecordIn]
 
 

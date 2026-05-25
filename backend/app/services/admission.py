@@ -8,6 +8,8 @@ from app.models.student import Student
 from app.models.lead import Lead
 from app.utils.exceptions import NotFoundError
 from app.utils.pagination import paginate
+from app.models.fee import FeeInvoice
+from datetime import date as date_type
 
 # ── Admission number generator ─────────────────────────────────────────────────
 async def next_admission_no(db: AsyncSession, tenant_id: str) -> str:
@@ -99,33 +101,7 @@ async def create_admission(
 ) -> Admission:
     print("FULL INCOMING DATA:", data)
     print("DEBUG create_admission subjects:", data.get("subjects"))  # ← add this
-    # admission_number = await next_admission_no(db, tenant_id)
-    # admission_number = await next_admission_no(db, tenant_id)
-
-    # admission = Admission(
-    #     id               = uuid.uuid4(),
-    #     tenant_id        = tenant_id,
-    #     admission_number = admission_number,
-    #     academic_year    = data.get("academic_year") or str(datetime.now().year),
-    #     applied_course   = data.get("applied_course") or data.get("batchName") or "N/A",
-    #     status           = data.get("status", "PENDING_DOCS"),
-    #     documents_verified = data.get("documents_verified", False),
-    #     remarks          = data.get("remarks") or data.get("notes"),
-    #     lead_id          = data.get("lead_id"),
-    #     student_name     = data.get("student_name") or data.get("studentName"),
-    #     phone            = data.get("phone"),
-    #     email            = data.get("email"),
-    #     parent_name      = data.get("parent_name"),
-    #     parent_phone     = data.get("parent_phone"),
-    #     school_name      = data.get("school_name"),
-    #     grade            = data.get("grade"),
-    #     board_name       = data.get("board_name"),
-    #     documents = data.get("documents") or [],
-    #     subjects  = data.get("subjects")  or [],
-    # )
-    # db.add(admission)
-    # await db.flush()
-    # return admission
+   
     admission_number = await next_admission_no(db, tenant_id)
 
     # Serialize payment object → JSON text for storage
@@ -278,28 +254,7 @@ async def generate_student_from_admission(
 
     enrollment_no = await next_enrollment_no(db, str(admission.tenant_id))
 
-    # student = Student(
-    #     id            = uuid.uuid4(),
-    #     tenant_id     = admission.tenant_id,
-    #     admission_id  = admission.id,
-    #     enrollment_no = enrollment_no,
-    #     first_name    = first_name,
-    #     last_name     = last_name,
-    #     current_class = admission.grade or "",
-    #     is_active     = True,
-    #     joined_at     = datetime.now().date(),
-    #     # Lead contact data takes priority; admission fields are fallback for walk-ins
-    #     email         = (lead.email                  if lead else None) or admission.email,
-    #     phone         = (lead.phone                  if lead else None) or admission.phone,
-    #     parent_name   = (lead.parent_name            if lead else None) or admission.parent_name,
-    #     parent_phone  = (lead.parent_contact_number  if lead else None) or admission.parent_phone,
-    #     school_name   = (lead.school_name            if lead else None) or admission.school_name,
-    #     target_exam   = lead.interested_course if lead else None,
-    #     subjects = [s for s in (admission.subjects or []) if s and s != "N/A"],
-    # )
-    # db.add(student)
-    # await db.flush()
-    # return student
+   
     student = Student(
         id            = uuid.uuid4(),
         tenant_id     = admission.tenant_id,
@@ -321,37 +276,6 @@ async def generate_student_from_admission(
     db.add(student)
     await db.flush()
 
-    # Auto-enroll student into the batch if batch_name is set
-    # if admission.batch_name:
-    #     from app.models.batch import Batch, BatchStudent
-    #     batch_result = await db.execute(
-    #         select(Batch).where(
-    #             and_(
-    #                 Batch.tenant_id == admission.tenant_id,
-    #                 Batch.name      == admission.batch_name,
-    #             )
-    #         )
-    #     )
-    #     batch = batch_result.scalar_one_or_none()
-    #     if batch:
-    #         # Check not already enrolled
-    #         existing = await db.scalar(
-    #             select(BatchStudent).where(
-    #                 and_(
-    #                     BatchStudent.batch_id   == batch.id,
-    #                     BatchStudent.student_id == student.id,
-    #                 )
-    #             )
-    #         )
-    #         if not existing:
-    #             db.add(BatchStudent(
-    #                 batch_id    = batch.id,
-    #                 student_id  = student.id,
-    #                 enrolled_at = datetime.now().date(),
-    #             ))
-    #             await db.flush()
-
-    # return student
     if admission.batch_id:
         from app.models.batch import Batch, BatchStudent
         batch = await db.get(Batch, admission.batch_id)
@@ -372,6 +296,50 @@ async def generate_student_from_admission(
                 ))
                 await db.flush()
 
+
+    fee_amount = float(getattr(admission, "fee_amount", 0) or 0)
+    fee_paid   = float(getattr(admission, "fee_paid",   0) or 0)
+
+    if fee_amount > 0:
+        if fee_paid >= fee_amount:
+            inv_status = "paid"
+        elif fee_paid > 0:
+            inv_status = "partial"
+        else:
+            inv_status = "pending"
+
+        # Parse due date from installment schedule
+        due_date = date_type.today()
+        try:
+            sched_raw = admission.payment_installment_schedule
+            if sched_raw:
+                sched = json.loads(sched_raw) if isinstance(sched_raw, str) else sched_raw
+                slots = sched.get("installmentSchedule") or []
+                if slots and slots[0].get("dueDate"):
+                    due_date = date_type.fromisoformat(slots[0]["dueDate"])
+        except Exception:
+            pass
+
+        # Check if invoice already exists
+        existing_inv = await db.scalar(
+            select(FeeInvoice).where(
+                FeeInvoice.invoice_no == f"INV-{admission.admission_number}"
+            )
+        )
+        if not existing_inv:
+            invoice = FeeInvoice(
+                tenant_id   = str(admission.tenant_id),
+                student_id  = student.id,
+                invoice_no  = f"INV-{admission.admission_number}",
+                amount_due  = fee_amount,
+                amount_paid = fee_paid,
+                discount    = 0,
+                due_date    = due_date,
+                status      = inv_status,
+            )
+            db.add(invoice)
+            await db.flush()
+            
     return student
 
 
@@ -383,11 +351,7 @@ async def convert_lead(
     converted_by: str,
     admission_data: dict | None = None,
 ) -> tuple[Admission, Student]:
-    """
-    Converts a lead → admission → student in a single atomic flush.
-    Marks the lead as converted.
-    Returns (admission, student).
-    """
+
     from sqlalchemy import and_
     from app.utils.exceptions import ConflictError
 

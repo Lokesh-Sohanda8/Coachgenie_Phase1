@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional, List, Any
-from datetime import date
+from datetime import date,datetime
 import uuid
 
 
@@ -155,14 +155,16 @@ class ClassCreate(BaseModel):
     tutor_id: Optional[uuid.UUID] = None
     title: str
     description: Optional[str] = None
-    scheduled_at: str
+    # scheduled_at: str
+    scheduled_at: datetime
     duration_min: int = 60
     room_or_link: Optional[str] = None
 
 
 class ClassUpdate(BaseModel):
     title: Optional[str] = None
-    scheduled_at: Optional[str] = None
+    # scheduled_at: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
     duration_min: Optional[int] = None
     room_or_link: Optional[str] = None
     status: Optional[str] = None
@@ -171,7 +173,8 @@ class ClassUpdate(BaseModel):
 class ClassOut(BaseModel):
     id: uuid.UUID
     title: str
-    scheduled_at: str
+    # scheduled_at: str
+    scheduled_at: datetime
     duration_min: int
     status: str
     room_or_link: Optional[str] = None

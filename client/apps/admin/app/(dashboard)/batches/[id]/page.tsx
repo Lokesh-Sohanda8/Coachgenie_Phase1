@@ -1,43 +1,36 @@
 "use client";
-import { use, useState, useEffect } from "react";
+import { use, useState, useEffect ,useMemo} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Users, Calendar, BookOpen, X, FileText } from "lucide-react";
+import { ArrowLeft, Users, Calendar, BookOpen, X, FileText ,Plus} from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAcademicStore } from "@/lib/stores/academic.store";
 import { toast } from "sonner";
 import type { Batch, BatchStatus } from "@/lib/types/academic";
+import { authHeaders } from "@/lib/auth-headers";
 
 // ── API helpers ────────────────────────────────────────────────
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
+
 // function authHeaders(): HeadersInit {
-//   const token  = sessionStorage.getItem("access_token");
-//   const tenant = process.env.NEXT_PUBLIC_TENANT_SUBDOMAIN ?? "demo";
+//   let token: string | null = null;
+//   let tenantId: string | null = null;
+//   try {
+//     const raw   = localStorage.getItem("coachgenie-auth");
+//     const state = raw ? JSON.parse(raw)?.state : null;
+//     token    = state?.accessToken ?? null;
+//     tenantId = state?.tenantId    ?? null;
+//   } catch {}
 //   return {
-//     "Content-Type":       "application/json",
-//     "X-Tenant-Subdomain": tenant,
-//     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+//     "Content-Type": "application/json",
+//     ...(token    ? { Authorization: `Bearer ${token}` } : {}),
+//     ...(tenantId ? { "X-Tenant-Id": tenantId }          : {}),
 //   };
 // }
-function authHeaders(): HeadersInit {
-  let token: string | null = null;
-  let tenantId: string | null = null;
-  try {
-    const raw   = localStorage.getItem("coachgenie-auth");
-    const state = raw ? JSON.parse(raw)?.state : null;
-    token    = state?.accessToken ?? null;
-    tenantId = state?.tenantId    ?? null;
-  } catch {}
-  return {
-    "Content-Type": "application/json",
-    ...(token    ? { Authorization: `Bearer ${token}` } : {}),
-    ...(tenantId ? { "X-Tenant-Id": tenantId }          : {}),
-  };
-}
 
-function mapBatch(raw: any): Batch {
+function mapBatch(raw: any,existingSyllabus?: any[]): Batch {
   const status: BatchStatus = raw.is_active === false ? "COMPLETED" : "ACTIVE";
   return {
     id:         String(raw.id),
@@ -52,7 +45,7 @@ function mapBatch(raw: any): Batch {
     schedule:   raw.schedule      ?? [],
     startDate:  raw.start_date    ?? "",
     endDate:    raw.end_date      ?? "",
-    syllabus:   raw.syllabus      ?? [],
+    syllabus:   (raw.syllabus?.length ? raw.syllabus : null) ?? existingSyllabus ?? [],
     subjects:   raw.subjects      ?? [],
   };
 }
@@ -112,6 +105,335 @@ const STAGE_COLORS: Record<string, string> = {
 // ── Tabs ───────────────────────────────────────────────────────
 type Tab = "students" | "classes" | "leads" | "syllabus";
 
+
+
+function ClassesTab({
+  batchId,
+  classes,
+  setClasses,
+  onMarkDone,
+  batch,
+}: {
+  batchId: string;
+  classes: any[];
+  setClasses: React.Dispatch<React.SetStateAction<any[]>>;
+  onMarkDone: (id: string) => void;
+  batch: any;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [form, setForm] = useState({
+    title: "",
+    scheduled_at: "",
+    duration_min: "60",
+    room_or_link: "",
+    subject_id: "",
+  });
+
+  // Use subjects directly from batch
+  const subjects = useMemo(() => 
+  (batch?.subjects ?? []).map((s: any, index: number) => ({
+    id: String(s?.id ?? s ?? index),
+    name: s?.name ?? s?.title ?? s,
+  })),
+  [batch?.subjects]
+);
+
+  async function handleSchedule(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (!form.title.trim() || !form.scheduled_at) {
+      toast.error("Title and date/time are required");
+      return;
+    }
+
+    if (!form.subject_id) {
+      toast.error("Please select a subject");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const res = await fetch(`${API}/batches/classes`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          batch_id: batchId,
+
+          // using subject_name because subjects are strings
+          subject_name: form.subject_id,
+
+          tutor_id: batch?.tutor_id ?? null,
+          title: form.title.trim(),
+          scheduled_at: new Date(form.scheduled_at).toISOString(),
+          duration_min: parseInt(form.duration_min) || 60,
+          room_or_link: form.room_or_link.trim() || null,
+          description: null,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+
+        throw new Error(
+          err.detail ??
+            err.message ??
+            `HTTP ${res.status}`
+        );
+      }
+
+      const json = await res.json();
+const created = json.data ?? json;
+setClasses((prev) => [...prev, created]);
+
+      setForm({
+        title: "",
+        scheduled_at: "",
+        duration_min: "60",
+        room_or_link: "",
+        subject_id: "",
+      });
+
+      setShowForm(false);
+
+      toast.success("Class scheduled");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to schedule class");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">
+          Classes ({classes.length})
+        </h3>
+
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Schedule Class
+        </button>
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={handleSchedule}
+          className="rounded-xl border bg-muted/30 p-4 space-y-3"
+        >
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            New Class
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+
+            {/* Title */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Title *
+              </label>
+
+              <input
+                required
+                value={form.title}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    title: e.target.value,
+                  }))
+                }
+                placeholder="e.g. Kinematics — Class 1"
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Date & Time */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Date & Time *
+              </label>
+
+              <input
+                required
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    scheduled_at: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Subject */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Subject *
+              </label>
+
+              <select
+                required
+                value={form.subject_id}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    subject_id: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">Select subject...</option>
+
+                {/* {subjects.map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.name}
+                  </option> */}
+                  {subjects.map((s, i) => (
+  <option key={`${s.name}-${i}`} value={s.name}>
+    {s.name}
+  </option>
+))}
+              </select>
+
+              {subjects.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  No subjects available in this batch
+                </p>
+              )}
+            </div>
+
+            {/* Duration */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Duration (minutes)
+              </label>
+
+              <input
+                type="number"
+                min="15"
+                max="300"
+                value={form.duration_min}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    duration_min: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Room */}
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                Room / Link
+              </label>
+
+              <input
+                value={form.room_or_link}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    room_or_link: e.target.value,
+                  }))
+                }
+                placeholder="Room 101 or meet.google.com/..."
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="rounded-lg border px-4 py-1.5 text-sm hover:bg-accent transition-colors"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors"
+            >
+              {submitting ? "Scheduling..." : "Schedule"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {classes.length === 0 && !showForm && (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No classes scheduled yet. Use the button above to add one.
+          </p>
+        )}
+
+        {classes.map((c: any, i: number) => (
+  <div
+    key={c.id ?? `class-${i}`}
+    className="flex items-center justify-between rounded-lg border p-3 gap-2"
+  >
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">
+                {c.title}
+              </p>
+
+              <p className="text-xs text-muted-foreground">
+                {c.scheduled_at
+                  ? format(
+                      new Date(c.scheduled_at),
+                      "dd MMM, h:mm a"
+                    )
+                  : "—"}
+
+                {c.duration_min
+                  ? ` · ${c.duration_min} min`
+                  : ""}
+
+                {c.room_or_link
+                  ? ` · ${c.room_or_link}`
+                  : ""}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span
+                className={cn(
+                  "text-[10px] font-medium rounded-full px-2 py-0.5 border",
+                  c.status === "completed"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-blue-200 bg-blue-50 text-blue-700"
+                )}
+              >
+                {c.status}
+              </span>
+
+              {c.status !== "completed" && (
+                <button
+                  onClick={() => onMarkDone(String(c.id))}
+                  className="rounded-md border px-2 py-1 text-[10px] hover:bg-accent transition-colors"
+                >
+                  Done
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────
 export default function BatchDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -138,7 +460,11 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
           const bRes  = await fetch(`${API}/batches/`, { headers: authHeaders() });
           const bJson = await bRes.json();
           const raw: any[] = Array.isArray(bJson) ? bJson : (bJson.data ?? []);
-          store.setBatches(raw.map(mapBatch));
+          // store.setBatches(raw.map(mapBatch));
+          store.setBatches(raw.map((b: any) => {
+            const existing = store.batches.find(x => String(x.id) === String(b.id));
+            return mapBatch(b, existing?.syllabus);
+          }));
           const found = raw.find((b: any) => String(b.id) === id);
           if (found) { currentBatch = mapBatch(found); setBatch(currentBatch); }
           else { setError("Batch not found"); setLoading(false); return; }
@@ -362,42 +688,14 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
       )}
 
       {/* ── Tab: Classes ──────────────────────────────────────── */}
-      {activeTab === "classes" && (
-        <div className="rounded-xl border bg-card p-5">
-          <h3 className="text-sm font-semibold mb-3">Classes ({classes.length})</h3>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {classes.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">No classes scheduled yet.</p>
-            )}
-            {classes.map((c: any) => (
-              <div key={c.id} className="flex items-center justify-between rounded-lg border p-3 gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{c.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {c.scheduled_at ? format(new Date(c.scheduled_at), "dd MMM, h:mm a") : "—"}
-                    {c.duration_min && ` · ${c.duration_min}min`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className={cn(
-                    "text-[10px] font-medium rounded-full px-2 py-0.5 border",
-                    c.status === "completed"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : "bg-blue-50 text-blue-700 border-blue-200"
-                  )}>
-                    {c.status}
-                  </span>
-                  {c.status !== "completed" && (
-                    <button onClick={() => handleMarkClassDone(String(c.id))}
-                      className="rounded-md border px-2 py-1 text-[10px] hover:bg-accent transition-colors">
-                      Done
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        {activeTab === "classes" && (
+        <ClassesTab
+          batchId={id}
+          classes={classes}
+          setClasses={setClasses}
+          onMarkDone={handleMarkClassDone}
+          batch={batch}
+        />
       )}
 
       {/* ── Tab: Leads (NEW) ──────────────────────────────────── */}
