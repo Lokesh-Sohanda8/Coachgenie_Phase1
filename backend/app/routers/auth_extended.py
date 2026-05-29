@@ -22,6 +22,7 @@ async def forgot_password(
     result = await auth_ext_service.forgot_password(
         db, str(tenant.id), body.email
     )
+    await db.commit()
     return {"success": True, **result}
 
 
@@ -36,6 +37,7 @@ async def verify_otp(
     await auth_ext_service.verify_otp(
         db, str(tenant.id), body.email, body.otp
     )
+    await db.commit()
     return {"success": True, "message": "OTP verified successfully."}
 
 
@@ -48,6 +50,7 @@ async def reset_password(
     result = await auth_ext_service.reset_password(
         db, str(tenant.id), body.email, body.otp, body.new_password
     )
+    await db.commit()
     return {"success": True, **result}
 
 
