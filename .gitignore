@@ -9,3 +9,7 @@ generated_reports/
 generated_reports/
 *.pdf
 coach-ai-5/
+
+backend/node_modules/
+backend/package.json
+backend/pnpm-lock.yaml

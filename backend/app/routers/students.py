@@ -10,6 +10,7 @@ router = APIRouter(
     prefix="/students",
     tags=["Students"]
 )
+router = APIRouter(prefix="/students", tags=["Students"])
 
 
 
