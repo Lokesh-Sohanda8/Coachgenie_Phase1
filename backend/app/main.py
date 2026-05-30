@@ -94,7 +94,6 @@ from app.routers import (
     auth, tenants, leads, students, admissions,
     batches, attendance, exams, fees, notifications, ai,parents, tutors, admins,
 )
-<<<<<<< HEAD
 
 from app.routers.ai_reports import (
     router as ai_reports_router,
@@ -104,10 +103,8 @@ from app.routers import auth_extended, dashboard
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
-=======
 from app.routers.ai_reports import router as ai_reports_router
 from app.routers import growth_cards, auth_extended, dashboard, syllabus
->>>>>>> 182a6946ea4e458b536f2196ad85904b8c71c98f
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("coaching_erp")
