@@ -5,6 +5,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.config import settings
 from app.utils.exceptions import UnauthorizedError
+from jose import JWTError
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -30,11 +31,22 @@ def hash_token(raw: str) -> str:
 
 def decode_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM]
+        )
+
+        print("JWT PAYLOAD:", payload)
+
         if payload.get("type") != "access":
             raise UnauthorizedError("Invalid token type.")
+
         return payload
-    except JWTError:
+
+    except JWTError as e:
+        print("JWT ERROR TYPE:", type(e).__name__)
+        print("JWT ERROR:", str(e))
         raise UnauthorizedError("Invalid or expired token.")
 
 def refresh_token_expiry() -> datetime:
